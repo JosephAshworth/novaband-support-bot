@@ -9,7 +9,9 @@ export default {
       colors: {
         novaband: {
           green: '#16A34A',
-          dark: '#15803D',
+          mid: '#22C55E',
+          dark: '#166534',
+          mint: '#BBF7D0',
           light: '#DCFCE7',
         },
       },
