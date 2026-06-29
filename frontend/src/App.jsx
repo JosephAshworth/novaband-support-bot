@@ -10,6 +10,11 @@ function App() {
   const [messages, setMessages] = useState([WELCOME_MESSAGE])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const sessionIdRef = useRef(
+    typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  )
   const messagesEndRef = useRef(null)
 
   useEffect(() => {
@@ -31,7 +36,10 @@ function App() {
       const response = await fetch('/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: updatedMessages }),
+        body: JSON.stringify({
+          session_id: sessionIdRef.current,
+          messages: updatedMessages,
+        }),
       })
 
       const data = await response.json()

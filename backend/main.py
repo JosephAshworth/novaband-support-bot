@@ -44,6 +44,8 @@ Always be concise, friendly and helpful. Do not use jargon.
 Reply in plain text only. Do not use markdown formatting, bullet symbols, or emojis."""
 
 MODEL = "claude-sonnet-4-6"
+# In production, this should be persisted in a shared store (for example Redis).
+escalated_sessions: dict[str, bool] = {}
 
 @app.get("/health")
 async def health():
@@ -72,6 +74,7 @@ class Message(BaseModel):
 
 
 class ChatRequest(BaseModel):
+    session_id: str
     messages: list[Message]
 
 
@@ -115,6 +118,11 @@ async def chat(request: ChatRequest) -> ChatResponse:
             },
         )
         # endregion
+        if escalated_sessions.get(request.session_id):
+            return ChatResponse(
+                reply="This conversation has been closed. If you need help with your NovaBand account, please call our support team on 0800 123 4567."
+            )
+
         client = get_client()
         response = client.messages.create(
             model=MODEL,
@@ -123,6 +131,12 @@ async def chat(request: ChatRequest) -> ChatResponse:
             messages=[{"role": m.role, "content": m.content} for m in request.messages],
         )
         reply = response.content[0].text
+        lower_reply = reply.lower()
+        if (
+            "unable to continue this conversation" in lower_reply
+            or "i'm not able to continue" in lower_reply
+        ):
+            escalated_sessions[request.session_id] = True
         # region agent log
         debug_log(
             "initial-debug",
