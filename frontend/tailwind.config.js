@@ -8,9 +8,9 @@ export default {
     extend: {
       colors: {
         novaband: {
-          purple: '#6B21A8',
-          pink: '#DB2777',
-          light: '#F3E8FF',
+          green: '#16A34A',
+          dark: '#15803D',
+          light: '#DCFCE7',
         },
       },
     },

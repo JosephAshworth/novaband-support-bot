@@ -61,10 +61,10 @@ function App() {
   return (
     <div className="flex flex-col h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-gradient-to-r from-novaband-purple to-novaband-pink text-white px-6 py-4 shadow-md">
+      <header className="bg-gradient-to-r from-novaband-green to-novaband-dark text-white px-6 py-4 shadow-md">
         <div className="max-w-3xl mx-auto">
           <h1 className="text-xl font-bold tracking-tight">NovaBand</h1>
-          <p className="text-sm text-purple-100 mt-0.5">Customer Support — Chat with Nova</p>
+          <p className="text-sm text-green-100 mt-0.5">Customer Support — Chat with Nova</p>
         </div>
       </header>
 
@@ -77,14 +77,14 @@ function App() {
               className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
               {msg.role === 'assistant' && (
-                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-novaband-purple to-novaband-pink flex items-center justify-center text-white text-xs font-bold mr-2 mt-1">
+                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-novaband-green to-novaband-dark flex items-center justify-center text-white text-xs font-bold mr-2 mt-1">
                   N
                 </div>
               )}
               <div
                 className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
                   msg.role === 'user'
-                    ? 'bg-novaband-purple text-white rounded-br-md'
+                    ? 'bg-novaband-green text-white rounded-br-md'
                     : 'bg-white text-gray-800 shadow-sm border border-gray-100 rounded-bl-md'
                 }`}
               >
@@ -95,7 +95,7 @@ function App() {
 
           {loading && (
             <div className="flex justify-start">
-              <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-novaband-purple to-novaband-pink flex items-center justify-center text-white text-xs font-bold mr-2 mt-1">
+              <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-novaband-green to-novaband-dark flex items-center justify-center text-white text-xs font-bold mr-2 mt-1">
                 N
               </div>
               <div className="bg-white rounded-2xl rounded-bl-md px-4 py-3 shadow-sm border border-gray-100">
@@ -121,12 +121,12 @@ function App() {
             onChange={(e) => setInput(e.target.value)}
             placeholder="Type your message..."
             disabled={loading}
-            className="flex-1 rounded-full border border-gray-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-novaband-purple focus:border-transparent disabled:opacity-50"
+            className="flex-1 rounded-full border border-gray-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-novaband-green focus:border-transparent disabled:opacity-50"
           />
           <button
             type="submit"
             disabled={loading || !input.trim()}
-            className="rounded-full bg-gradient-to-r from-novaband-purple to-novaband-pink text-white px-6 py-2.5 text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+            className="rounded-full bg-gradient-to-r from-novaband-green to-novaband-dark text-white px-6 py-2.5 text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Send
           </button>
