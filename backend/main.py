@@ -44,8 +44,10 @@ Always be concise, friendly and helpful. Do not use jargon.
 Reply in plain text only. Do not use markdown formatting, bullet symbols, or emojis."""
 
 MODEL = "claude-sonnet-4-6"
-DEBUG_LOG_PATH = "/Users/Joseph3/novaband support bot/.cursor/debug-b88ccb.log"
 
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
 
 def debug_log(run_id: str, hypothesis_id: str, location: str, message: str, data: dict) -> None:
     payload = {
