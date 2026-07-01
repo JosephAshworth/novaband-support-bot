@@ -14,6 +14,7 @@ Nova is a demo support assistant for UK mobile customers. It uses the full conve
 - Polite out-of-scope redirects for non-NovaBand questions
 - FastAPI backend with a single `/chat` endpoint and React + Tailwind frontend
 - Session-based escalation lock for abusive conversations after 3 violations (demo in-memory state)
+- Model-driven moderation (no hardcoded profanity list) with structured abuse classification
 
 ## Tech Stack
 
