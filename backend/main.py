@@ -4,6 +4,7 @@ import time
 from typing import Literal
 
 import anthropic
+import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -116,7 +117,11 @@ def get_client() -> anthropic.Anthropic:
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
         raise ValueError("ANTHROPIC_API_KEY is not set in environment")
-    return anthropic.Anthropic(api_key=api_key)
+    # Avoid inheriting proxy settings from host environment that can break TLS.
+    return anthropic.Anthropic(
+        api_key=api_key,
+        http_client=httpx.Client(trust_env=False, timeout=30.0),
+    )
 
 
 @app.post("/chat", response_model=ChatResponse)
