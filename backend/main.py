@@ -46,6 +46,7 @@ Reply in plain text only. Do not use markdown formatting, bullet symbols, or emo
 MODEL = "claude-sonnet-4-6"
 # In production, this should be persisted in a shared store (for example Redis).
 escalated_sessions: dict[str, bool] = {}
+abuse_strikes: dict[str, int] = {}
 
 @app.get("/health")
 async def health():
@@ -80,6 +81,22 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     reply: str
+
+
+def is_abusive(text: str) -> bool:
+    abusive_terms = {
+        "fuck",
+        "fucking",
+        "shit",
+        "bitch",
+        "bastard",
+        "asshole",
+        "cunt",
+        "wanker",
+        "idiot",
+    }
+    lower_text = text.lower()
+    return any(term in lower_text for term in abusive_terms)
 
 
 def get_client() -> anthropic.Anthropic:
@@ -123,6 +140,24 @@ async def chat(request: ChatRequest) -> ChatResponse:
                 reply="This conversation has been closed. If you need help with your NovaBand account, please call our support team on 0800 123 4567."
             )
 
+        latest_user_message = ""
+        if request.messages and request.messages[-1].role == "user":
+            latest_user_message = request.messages[-1].content
+
+        if latest_user_message and is_abusive(latest_user_message):
+            current_strikes = abuse_strikes.get(request.session_id, 0) + 1
+            abuse_strikes[request.session_id] = current_strikes
+
+            if current_strikes >= 3:
+                escalated_sessions[request.session_id] = True
+                return ChatResponse(
+                    reply="This conversation has been closed. If you need help with your NovaBand account, please call our support team on 0800 123 4567."
+                )
+
+            return ChatResponse(
+                reply=f"I want to help, but I can't continue if abusive language is used. This is warning {current_strikes} of 3. If it happens again, I may need to end this conversation and ask you to call 0800 123 4567."
+            )
+
         client = get_client()
         response = client.messages.create(
             model=MODEL,
@@ -131,12 +166,6 @@ async def chat(request: ChatRequest) -> ChatResponse:
             messages=[{"role": m.role, "content": m.content} for m in request.messages],
         )
         reply = response.content[0].text
-        lower_reply = reply.lower()
-        if (
-            "unable to continue this conversation" in lower_reply
-            or "i'm not able to continue" in lower_reply
-        ):
-            escalated_sessions[request.session_id] = True
         # region agent log
         debug_log(
             "initial-debug",
