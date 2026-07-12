@@ -51,7 +51,7 @@ escalated_sessions: dict[str, bool] = {}
 abuse_strikes: dict[str, int] = {}
 abuse_audit_log: dict[str, list[dict]] = {}
 
-MAX_ABUSE_STRIKES = 3
+MAX_ABUSE_STRIKES = 2
 MAX_AUDIT_EVENTS_PER_SESSION = 100
 DEBUG_LOG_PATH = "/Users/Joseph3/novaband support bot/.cursor/debug-b88ccb.log"
 
