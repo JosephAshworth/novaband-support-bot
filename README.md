@@ -13,7 +13,7 @@ Nova is a demo support assistant for UK mobile customers. It uses the full conve
 - Safety/escalation handling for fraud, account security concerns, and formal complaints
 - Polite out-of-scope redirects for non-NovaBand questions
 - FastAPI backend with a single `/chat` endpoint and React + Tailwind frontend
-- Session-based escalation lock for abusive conversations after 3 violations (demo in-memory state)
+- Session-based escalation lock for abusive conversations after 3 violations (PostgreSQL-backed persistence)
 - Model-driven moderation (no hardcoded profanity list) with structured abuse classification
 
 ## Tech Stack
@@ -25,6 +25,7 @@ Nova is a demo support assistant for UK mobile customers. It uses the full conve
 
 - Python 3.10+
 - Node.js 18+
+- PostgreSQL (local instance for development)
 - An Anthropic API key
 
 Get your API key from the Anthropic Console: [https://console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys)
@@ -44,6 +45,13 @@ Create a `.env` file in the `backend` directory:
 
 ```
 ANTHROPIC_API_KEY=your_api_key_here
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/novaband_support
+```
+
+Create a local PostgreSQL database for the backend session store, for example:
+
+```bash
+createdb novaband_support
 ```
 
 Start the backend:

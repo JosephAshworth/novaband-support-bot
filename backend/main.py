@@ -2,9 +2,11 @@ import os
 import json
 import time
 import re
+import asyncio
 from typing import Literal
 
 import anthropic
+import asyncpg
 import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI
@@ -46,10 +48,10 @@ Always be concise, friendly and helpful. Do not use jargon.
 Reply in plain text only. Do not use markdown formatting, bullet symbols, or emojis."""
 
 MODEL = "claude-sonnet-4-6"
-# In production, this should be persisted in a shared store (for example Redis).
-escalated_sessions: dict[str, bool] = {}
 abuse_strikes: dict[str, int] = {}
 abuse_audit_log: dict[str, list[dict]] = {}
+db_pool: asyncpg.Pool | None = None
+db_pool_lock = asyncio.Lock()
 
 MAX_ABUSE_STRIKES = 2
 MAX_AUDIT_EVENTS_PER_SESSION = 100
@@ -61,9 +63,81 @@ SESSION_CLOSED_REPLY = (
     "please ask for a moderation review when you call."
 )
 
+
+def get_database_url() -> str:
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        raise ValueError("DATABASE_URL is not set in environment")
+    return database_url
+
+
+async def get_db_pool() -> asyncpg.Pool:
+    global db_pool
+    if db_pool is not None:
+        return db_pool
+
+    async with db_pool_lock:
+        if db_pool is None:
+            db_pool = await asyncpg.create_pool(get_database_url())
+            async with db_pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS sessions (
+                        session_id TEXT PRIMARY KEY,
+                        escalated BOOLEAN NOT NULL DEFAULT FALSE,
+                        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+                    )
+                    """
+                )
+    return db_pool
+
+
+async def get_or_create_session_escalated(session_id: str) -> bool:
+    # This replaces the previous in-memory `escalated_sessions` dictionary so
+    # escalation state survives backend restarts.
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT escalated FROM sessions WHERE session_id = $1", session_id
+        )
+        if row is None:
+            await conn.execute(
+                """
+                INSERT INTO sessions (session_id, escalated, created_at, updated_at)
+                VALUES ($1, FALSE, NOW(), NOW())
+                """,
+                session_id,
+            )
+            return False
+        return bool(row["escalated"])
+
+
+async def set_session_escalated(session_id: str) -> None:
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO sessions (session_id, escalated, created_at, updated_at)
+            VALUES ($1, TRUE, NOW(), NOW())
+            ON CONFLICT (session_id) DO UPDATE
+            SET escalated = TRUE, updated_at = NOW()
+            """,
+            session_id,
+        )
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.on_event("shutdown")
+async def shutdown_event() -> None:
+    global db_pool
+    if db_pool is not None:
+        await db_pool.close()
+        db_pool = None
 
 def debug_log(run_id: str, hypothesis_id: str, location: str, message: str, data: dict) -> None:
     payload = {
@@ -220,7 +294,8 @@ async def chat(request: ChatRequest) -> ChatResponse:
             },
         )
         # endregion
-        if escalated_sessions.get(request.session_id):
+        is_escalated = await get_or_create_session_escalated(request.session_id)
+        if is_escalated:
             # region agent log
             debug_log(
                 "initial-debug",
@@ -247,7 +322,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
                 "latest_role": request.messages[-1].role if request.messages else None,
                 "latest_user_message_excerpt": latest_user_message[:120],
                 "existing_strikes": abuse_strikes.get(request.session_id, 0),
-                "is_escalated": escalated_sessions.get(request.session_id, False),
+                "is_escalated": is_escalated,
             },
         )
         # endregion
@@ -299,7 +374,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
                 )
 
                 if current_strikes >= MAX_ABUSE_STRIKES:
-                    escalated_sessions[request.session_id] = True
+                    await set_session_escalated(request.session_id)
                     # region agent log
                     debug_log(
                         "initial-debug",
