@@ -3,14 +3,16 @@ import json
 import time
 import re
 import asyncio
-from typing import Literal
+from typing import Any, Literal
 
 import anthropic
 import asyncpg
 import httpx
+import openai
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from openai import AzureOpenAI
 from pydantic import BaseModel
 
 load_dotenv()
@@ -48,6 +50,7 @@ Always be concise, friendly and helpful. Do not use jargon.
 Reply in plain text only. Do not use markdown formatting, bullet symbols, or emojis."""
 
 MODEL = "claude-sonnet-4-6"
+AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01")
 abuse_strikes: dict[str, int] = {}
 abuse_audit_log: dict[str, list[dict]] = {}
 db_pool: asyncpg.Pool | None = None
@@ -183,9 +186,71 @@ def record_moderation_event(session_id: str, event_type: str, content: str, deta
         abuse_audit_log[session_id] = entries[-MAX_AUDIT_EVENTS_PER_SESSION:]
 
 
-def model_assisted_abuse_check(client: anthropic.Anthropic, text: str) -> dict:
-    response = client.messages.create(
-        model=MODEL,
+def get_llm_provider() -> Literal["anthropic", "azure_openai"]:
+    provider = os.getenv("LLM_PROVIDER", "anthropic").strip().lower()
+    if provider not in {"anthropic", "azure_openai"}:
+        raise ValueError("LLM_PROVIDER must be either 'anthropic' or 'azure_openai'")
+    if provider == "anthropic":
+        return "anthropic"
+    return "azure_openai"
+
+
+def get_azure_openai_config() -> tuple[str, str, str]:
+    api_key = os.getenv("AZURE_OPENAI_API_KEY")
+    endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+    deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
+    if not api_key:
+        raise ValueError("AZURE_OPENAI_API_KEY is not set in environment")
+    if not endpoint:
+        raise ValueError("AZURE_OPENAI_ENDPOINT is not set in environment")
+    if not deployment_name:
+        raise ValueError("AZURE_OPENAI_DEPLOYMENT_NAME is not set in environment")
+    return api_key, endpoint, deployment_name
+
+
+def call_model_text(
+    provider: Literal["anthropic", "azure_openai"],
+    client: Any,
+    messages: list[dict[str, str]],
+    max_tokens: int,
+    temperature: float | None = None,
+    system_prompt: str | None = None,
+) -> str:
+    if provider == "anthropic":
+        request_kwargs: dict[str, Any] = {
+            "model": MODEL,
+            "max_tokens": max_tokens,
+            "messages": messages,
+        }
+        if temperature is not None:
+            request_kwargs["temperature"] = temperature
+        if system_prompt is not None:
+            request_kwargs["system"] = system_prompt
+        response = client.messages.create(**request_kwargs)
+        return response.content[0].text
+
+    _, _, deployment_name = get_azure_openai_config()
+    openai_messages = messages
+    if system_prompt:
+        openai_messages = [{"role": "system", "content": system_prompt}, *messages]
+
+    request_kwargs = {
+        "model": deployment_name,
+        "max_tokens": max_tokens,
+        "messages": openai_messages,
+    }
+    if temperature is not None:
+        request_kwargs["temperature"] = temperature
+    response = client.chat.completions.create(**request_kwargs)
+    return response.choices[0].message.content or ""
+
+
+def model_assisted_abuse_check(
+    provider: Literal["anthropic", "azure_openai"], client: Any, text: str
+) -> dict:
+    raw = call_model_text(
+        provider=provider,
+        client=client,
         max_tokens=80,
         temperature=0,
         messages=[
@@ -203,8 +268,7 @@ def model_assisted_abuse_check(client: anthropic.Anthropic, text: str) -> dict:
                 ),
             }
         ],
-    )
-    raw = response.content[0].text.strip()
+    ).strip()
     lower_raw = raw.lower()
 
     abusive_match = re.search(r"abusive:\s*(yes|true|1|y|no|false|0|n)\b", lower_raw)
@@ -230,9 +294,11 @@ def model_assisted_abuse_check(client: anthropic.Anthropic, text: str) -> dict:
     return {"abusive": abusive, "severity": severity, "raw": raw}
 
 
-def evaluate_abuse(client: anthropic.Anthropic, text: str) -> dict:
+def evaluate_abuse(
+    provider: Literal["anthropic", "azure_openai"], client: Any, text: str
+) -> dict:
     try:
-        model_result = model_assisted_abuse_check(client, text)
+        model_result = model_assisted_abuse_check(provider, client, text)
     except Exception:
         # region agent log
         debug_log(
@@ -254,26 +320,41 @@ def evaluate_abuse(client: anthropic.Anthropic, text: str) -> dict:
     }
 
 
-def get_client() -> anthropic.Anthropic:
+def get_client() -> tuple[Literal["anthropic", "azure_openai"], Any]:
+    provider = get_llm_provider()
     # region agent log
     debug_log(
         "initial-debug",
         "H1_H2",
         "main.py:get_client",
-        "Checking environment for Anthropic key",
+        "Checking environment for configured LLM provider",
         {
             "cwd": os.getcwd(),
+            "llm_provider": provider,
             "anthropic_key_present": bool(os.getenv("ANTHROPIC_API_KEY")),
             "anthropic_key_length": len(os.getenv("ANTHROPIC_API_KEY") or ""),
+            "azure_key_present": bool(os.getenv("AZURE_OPENAI_API_KEY")),
+            "azure_endpoint_present": bool(os.getenv("AZURE_OPENAI_ENDPOINT")),
+            "azure_deployment_present": bool(os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")),
         },
     )
     # endregion
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise ValueError("ANTHROPIC_API_KEY is not set in environment")
+    if provider == "anthropic":
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise ValueError("ANTHROPIC_API_KEY is not set in environment")
+        # Avoid inheriting proxy settings from host environment that can break TLS.
+        return provider, anthropic.Anthropic(
+            api_key=api_key,
+            http_client=httpx.Client(trust_env=False, timeout=30.0),
+        )
+
+    api_key, endpoint, _ = get_azure_openai_config()
     # Avoid inheriting proxy settings from host environment that can break TLS.
-    return anthropic.Anthropic(
+    return provider, AzureOpenAI(
         api_key=api_key,
+        azure_endpoint=endpoint,
+        api_version=AZURE_OPENAI_API_VERSION,
         http_client=httpx.Client(trust_env=False, timeout=30.0),
     )
 
@@ -327,9 +408,9 @@ async def chat(request: ChatRequest) -> ChatResponse:
         )
         # endregion
 
-        client = get_client()
+        provider, client = get_client()
         if latest_user_message:
-            abuse_eval = evaluate_abuse(client, latest_user_message)
+            abuse_eval = evaluate_abuse(provider, client, latest_user_message)
             # region agent log
             debug_log(
                 "initial-debug",
@@ -409,13 +490,13 @@ async def chat(request: ChatRequest) -> ChatResponse:
                 {"session_id": request.session_id},
             )
             # endregion
-        response = client.messages.create(
-            model=MODEL,
+        reply = call_model_text(
+            provider=provider,
+            client=client,
             max_tokens=1024,
-            system=SYSTEM_PROMPT,
+            system_prompt=SYSTEM_PROMPT,
             messages=[{"role": m.role, "content": m.content} for m in request.messages],
         )
-        reply = response.content[0].text
         # region agent log
         debug_log(
             "initial-debug",
@@ -426,19 +507,6 @@ async def chat(request: ChatRequest) -> ChatResponse:
         )
         # endregion
         return ChatResponse(reply=reply)
-    except anthropic.APIError:
-        # region agent log
-        debug_log(
-            "initial-debug",
-            "H4",
-            "main.py:chat:anthropic_api_error",
-            "Anthropic APIError caught",
-            {},
-        )
-        # endregion
-        return ChatResponse(
-            reply="Sorry, I'm having trouble connecting right now. Please try again in a moment, or call us on 0800 123 4567."
-        )
     except ValueError:
         # region agent log
         debug_log(
@@ -452,7 +520,20 @@ async def chat(request: ChatRequest) -> ChatResponse:
         return ChatResponse(
             reply="Sorry, the support service is not configured correctly. Please contact NovaBand on 0800 123 4567."
         )
-    except Exception:
+    except Exception as exc:
+        if isinstance(exc, (anthropic.APIError, openai.APIError)):
+            # region agent log
+            debug_log(
+                "initial-debug",
+                "H4",
+                "main.py:chat:provider_api_error",
+                "LLM provider API error caught",
+                {"error_type": type(exc).__name__},
+            )
+            # endregion
+            return ChatResponse(
+                reply="Sorry, I'm having trouble connecting right now. Please try again in a moment, or call us on 0800 123 4567."
+            )
         # region agent log
         debug_log(
             "initial-debug",

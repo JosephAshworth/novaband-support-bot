@@ -18,7 +18,7 @@ Nova is a demo support assistant for UK mobile customers. It uses the full conve
 
 ## Tech Stack
 
-- **Backend:** Python, FastAPI, Anthropic Claude API (`claude-sonnet-4-6`)
+- **Backend:** Python, FastAPI, Anthropic Claude API or Azure OpenAI API
 - **Frontend:** React, Vite, Tailwind CSS
 
 ## Prerequisites
@@ -26,9 +26,9 @@ Nova is a demo support assistant for UK mobile customers. It uses the full conve
 - Python 3.10+
 - Node.js 18+
 - PostgreSQL (local instance for development)
-- An Anthropic API key
+- An Anthropic API key (default provider) or Azure OpenAI credentials
 
-Get your API key from the Anthropic Console: [https://console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys)
+Get your Anthropic key from [https://console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys), or configure Azure OpenAI credentials and deployment details.
 
 ## Setup
 
@@ -45,8 +45,14 @@ Create a `.env` file in the `backend` directory:
 
 ```
 ANTHROPIC_API_KEY=your_api_key_here
+LLM_PROVIDER=anthropic
+AZURE_OPENAI_API_KEY=your_azure_api_key_here
+AZURE_OPENAI_ENDPOINT=https://your-resource-name.openai.azure.com
+AZURE_OPENAI_DEPLOYMENT_NAME=your_deployment_name
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/novaband_support
 ```
+
+`LLM_PROVIDER` accepts `anthropic` (default) or `azure_openai`. If unset, the backend uses Anthropic as before.
 
 Create a local PostgreSQL database for the backend session store, for example:
 
